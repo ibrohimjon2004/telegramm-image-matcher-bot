@@ -4,64 +4,84 @@ import sqlite3
 from PIL import Image
 import imagehash
 from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
+from telegram.ext import (
+    ApplicationBuilder,
+    MessageHandler,
+    CommandHandler,
+    ContextTypes,
+    filters,
+)
 
-# Config
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+# --- CONFIG ---
+TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 DB_PATH = "rasm_hash.db"
 
-# Logging
+# --- LOGGING ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Ensure DB exists
+# --- DATABASE SETUP ---
 def init_db():
     conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("CREATE TABLE IF NOT EXISTS hashes (id INTEGER PRIMARY KEY AUTOINCREMENT, hash TEXT)")
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS hashes (id INTEGER PRIMARY KEY AUTOINCREMENT, hash TEXT)"
+    )
     conn.commit()
     conn.close()
 
-# Add hash to database
-def save_hash(img_hash):
+def save_hash(img_hash: str):
     conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("INSERT INTO hashes (hash) VALUES (?)", (str(img_hash),))
+    conn.execute("INSERT INTO hashes (hash) VALUES (?)", (img_hash,))
     conn.commit()
     conn.close()
 
-# Check if hash already exists
-def is_duplicate(img_hash):
+def is_duplicate(img_hash: str) -> bool:
     conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT hash FROM hashes")
-    existing_hashes = [row[0] for row in c.fetchall()]
+    cur = conn.execute("SELECT 1 FROM hashes WHERE hash = ?", (img_hash,))
+    exists = cur.fetchone() is not None
     conn.close()
-    return str(img_hash) in existing_hashes
+    return exists
 
-# Handle incoming photo
+# --- HANDLERS ---
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("👋 Salom! Rasm yuboring, men mavjudligini tekshiraman.")
+
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        photo = await update.message.photo[-1].get_file()
-        file_path = await photo.download_to_drive()
-        img = Image.open(file_path)
+        # Download the highest resolution photo
+        photo = update.message.photo[-1]
+        file = await photo.get_file()
+        path = await file.download_to_drive()
 
-        img_hash = imagehash.average_hash(img)
+        # Compute perceptual hash
+        img = Image.open(path)
+        img_hash = str(imagehash.average_hash(img))
 
+        # Check and respond
         if is_duplicate(img_hash):
             await update.message.reply_text("🟡 Bu rasm ilgari yuborilgan.")
         else:
             save_hash(img_hash)
             await update.message.reply_text("🆕 Yangi rasm. Xotiraga saqlandi.")
 
-        os.remove(file_path)
+        # Clean up
+        os.remove(path)
 
     except Exception as e:
-        logger.error(f"Xatolik: {e}")
+        logger.error(f"Xatolik rasmni qayta ishlashda: {e}")
         await update.message.reply_text("❌ Rasmni tekshirishda muammo bo‘ldi.")
 
-if __name__ == "__main__":
+# --- MAIN ---
+async def main():
     init_db()
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app.run_polling()
+
+    logger.info("Bot ishga tushmoqda...")
+    await app.run_polling()
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
