@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: telegram-image-checker
+    env: python
+    buildCommand: ""
+    startCommand: ./start.sh
+    autoDeploy: true
