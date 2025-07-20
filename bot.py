@@ -8,7 +8,6 @@ from telegram.ext import (
     ApplicationBuilder,
     MessageHandler,
     CommandHandler,
-    ContextTypes,
     filters,
 )
 
@@ -43,15 +42,15 @@ def is_duplicate(img_hash: str) -> bool:
     return exists
 
 # --- HANDLERS ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Salom! Rasm yuboring, men mavjudligini tekshiraman.")
+def start(update: Update, context):
+    update.message.reply_text("👋 Salom! Rasm yuboring, men mavjudligini tekshiraman.")
 
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def handle_photo(update: Update, context):
     try:
         # Download the highest resolution photo
         photo = update.message.photo[-1]
-        file = await photo.get_file()
-        path = await file.download_to_drive()
+        file = photo.get_file()
+        path = file.download_to_drive()
 
         # Compute perceptual hash
         img = Image.open(path)
@@ -59,20 +58,19 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Check and respond
         if is_duplicate(img_hash):
-            await update.message.reply_text("🟡 Bu rasm ilgari yuborilgan.")
+            update.message.reply_text("🟡 Bu rasm ilgari yuborilgan.")
         else:
             save_hash(img_hash)
-            await update.message.reply_text("🆕 Yangi rasm. Xotiraga saqlandi.")
+            update.message.reply_text("🆕 Yangi rasm. Xotiraga saqlandi.")
 
         # Clean up
         os.remove(path)
 
     except Exception as e:
         logger.error(f"Xatolik rasmni qayta ishlashda: {e}")
-        await update.message.reply_text("❌ Rasmni tekshirishda muammo bo‘ldi.")
+        update.message.reply_text("❌ Rasmni tekshirishda muammo bo‘ldi.")
 
-# --- MAIN ---
-async def main():
+if __name__ == "__main__":
     init_db()
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
@@ -80,8 +78,4 @@ async def main():
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
     logger.info("Bot ishga tushmoqda...")
-    await app.run_polling()
-
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    app.run_polling()
